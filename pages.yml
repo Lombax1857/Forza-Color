@@ -1,0 +1,37 @@
+# Publish the app to GitHub Pages on every push to main.
+#
+# Pages is free and has no build-minute quota for a static site, which is the
+# point: nothing here is built, the files are served as they are.
+name: Deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it mid-flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          # everything at the repo root; index.html, sw.js, the manifest,
+          # the icons and env-*.jpg all have to sit beside each other
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
