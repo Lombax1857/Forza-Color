@@ -104,8 +104,9 @@ button{background:none;border:none;cursor:pointer}
 .lay{border:1px solid var(--rail);border-radius:9px;padding:9px;margin-bottom:8px;background:var(--booth)}
 .lay .hdr{display:flex;align-items:center;gap:8px;margin-bottom:7px}
 .lay .hdr b{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--gauge);flex:1}
-.lay .hdr input[type=color]{width:40px;height:32px;padding:0;border:1px solid var(--rail);
-  border-radius:6px;background:none;flex-shrink:0;cursor:pointer}
+.lay .hdr input[type=color]{width:40px;height:32px;padding:0;border:none;
+  border-radius:6px;background:none;flex-shrink:0;cursor:pointer;
+  box-shadow:0 0 0 1px var(--rail)}
 .lay .hdr input[type=text]{width:96px;flex:0 0 auto;font-family:var(--mono)}
 .hsv{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .hsv label{display:block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
@@ -117,8 +118,8 @@ button{background:none;border:none;cursor:pointer}
   .lay .hdr input[type=text]{width:110px}
 }
 .labchip{display:flex;gap:10px;align-items:center;padding:7px 0}
-.labchip i{width:34px;height:34px;border-radius:8px;flex-shrink:0;
-  border:1px solid var(--rail);box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+.labchip i{width:34px;height:34px;border-radius:8px;flex-shrink:0;border:none;
+  box-shadow:0 0 0 1px var(--rail)}
 .labchip span{font-size:13px;color:var(--chalk)}
 .labchip em{display:block;font-style:normal;font-size:11px;color:var(--gauge);
   letter-spacing:.04em;font-variant-numeric:tabular-nums}
@@ -137,8 +138,13 @@ button{background:none;border:none;cursor:pointer}
   border-left:2px solid transparent}
 .row:hover{background:var(--panel-2)}
 .row.on{background:var(--panel-2);border-left-color:var(--sodium)}
-.dot{width:11px;height:11px;flex-shrink:0;border:1px solid rgba(255,255,255,.22)}
-.dot.void{border-style:dashed;border-color:var(--rail-lit)}
+/* The ring goes OUTSIDE. A 1px border on an 11px dot eats a third of it, and
+   at rgba(255,255,255,.22) that third was white — so every swatch in the list
+   read lighter than its hex. box-shadow draws outside the box, so the whole
+   element is the colour and nothing is blended into it. */
+.dot{width:11px;height:11px;flex-shrink:0;border:none;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 0 0 2px rgba(255,255,255,.10)}
+.dot.void{box-shadow:none;border:1px dashed var(--rail-lit)}
 .rowtxt{flex:1;min-width:0}
 .rowtxt .m{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rowtxt .y{display:block;font-family:var(--mono);font-size:9.5px;color:var(--gauge);
@@ -196,7 +202,8 @@ input[type=range]::-moz-range-thumb{width:9px;height:14px;background:var(--sodiu
 .coatlabel{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
 .coatlabel s{text-decoration:none;font-family:var(--mono);font-size:9.5px;color:var(--rail-lit)}
 .hexrow{display:flex;gap:7px;margin-bottom:8px}
-.swatch{width:52px;flex-shrink:0;border:1px solid var(--rail-lit);position:relative;background:#000}
+.swatch{width:52px;flex-shrink:0;border:none;position:relative;background:#000;
+  box-shadow:inset 0 0 0 0 transparent, 0 0 0 1px var(--rail-lit)}
 .swatch input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;cursor:pointer}
 .hexin{flex:1;height:34px;padding:0 10px;background:var(--booth);border:1px solid var(--rail);
   font-family:var(--mono);font-size:14px;letter-spacing:.05em;text-transform:lowercase}
@@ -424,7 +431,7 @@ dl.api dd{color:var(--gauge);padding-left:13px}
 
 <div id="shell">
   <header id="topbar">
-    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.4</i></div>
+    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.6</i></div>
     <input id="search" type="search" placeholder="Search make, model, colour, hex…" aria-label="Search cars">
     <span class="spacer"></span>
     <span id="count" class="eyebrow"></span>
@@ -7043,7 +7050,7 @@ uniform sampler2D uEnvMap;
 uniform float uHasMap;
 uniform float uGroundY, uEyeH, uDomeR, uProject;
 uniform vec3 uSGamp[SG_MAX];
-uniform float uAo, uBleed, uDebug, uTint;
+uniform float uAo, uBleed, uDebug, uTint, uIrrNorm;
 uniform float uTone, uWhite, uSatBias, uSat, uCon, uEncode;
 uniform mat3 uInM, uOutM;
 uniform vec3 uLum;
@@ -7417,7 +7424,9 @@ void main(){
   /* ao^(1/roughness) amplifies residual AO 5x on gloss; Lagarde attenuates. */
   float sao = mix(1.0, clamp(pow(NoV0 + ao, exp2(-16.0 * uRough - 1.0)) - 1.0 + ao, 0.0, 1.0), uAo);
 
-  vec3 irr = envIrradiance(bent) * ao;
+  /* Normalised by the scene's own mean, so a surface facing the average
+     direction renders at its albedo and a swatch can be checked against it. */
+  vec3 irr = envIrradiance(bent) * ao * uIrrNorm;
   irr += irr * albedo * (1.0 - ao) * uBleed * 1.6;
 
   vec3 L = normalize(uSunDir);
@@ -8086,6 +8095,7 @@ function initGL(){
     uNeon:{value:0}, uExposure:{value:1}, uTrue:{value:0},
     uCloud:{value:0}, uMtn:{value:0}, uBox:{value:0},
     uSGN:{value:0}, uEnvTint:{value:new THREE.Vector3(1,1,1)},
+    uIrrNorm:{value:1},
     uEnvMap:{value:null}, uHasMap:{value:0},
     uGroundY:{value:0}, uEyeH:{value:1.45}, uDomeR:{value:26.0}, uProject:{value:1},
     uSGdir:{value:Array.from({length:40}, () => new THREE.Vector4(0,1,0,1))},
@@ -8556,7 +8566,36 @@ function pushPaint(override){
       u.uSGamp.value[i].set(sgk.amp[i*3], sgk.amp[i*3+1], sgk.amp[i*3+2]);
     }
     u.uSGN.value = n;
-  }else u.uSGN.value = 0;
+
+    /* ---- exposure the paint can be judged by ----
+       A scene's mean hemispherical irradiance is around 0.36 here, so a
+       diffuse surface rendered as albedo x irradiance came out at 24% where
+       its hex says 40 — the paint reading darker than itself. Before the
+       albedo was linearised it read 71% instead, which is the same error the
+       other way. Neither is a colour you can check a swatch against.
+
+       Normalising the diffuse term by the scene's own mean puts a surface
+       facing the average direction at exactly its albedo. Specular still adds
+       on top, which is right — a gloss coat IS brighter than its pigment —
+       and a genuinely dark scene like Tokyo night still reads dark, because
+       the normalisation is per environment rather than global. */
+    let mean = 0;
+    for(let i = 0; i < 24; i++){
+      const t = (i + 0.5) / 24, y = Math.sqrt(t), r = Math.sqrt(1 - t), ang = i * 2.399;
+      const nx = r*Math.cos(ang), ny = y, nz = r*Math.sin(ang);
+      let acc = 0;
+      for(let l = 0; l < n; l++){
+        const d = nx*sgk.dir[l*3] + ny*sgk.dir[l*3+1] + nz*sgk.dir[l*3+2];
+        const lam = sgk.lam[l], k = 2.2;
+        const le = lam*k/(lam+k), e = le*(d-1);
+        if(e < -22) continue;
+        const w = Math.exp(e) * (k/(lam+k));
+        acc += (sgk.amp[l*3] + sgk.amp[l*3+1] + sgk.amp[l*3+2]) / 3 * w;
+      }
+      mean += acc / 24;
+    }
+    u.uIrrNorm.value = mean > 1e-4 ? 1 / mean : 1;
+  }else { u.uSGN.value = 0; u.uIrrNorm.value = 1; }
   u.uEyeH.value = state.eyeH;
   u.uSat.value = (grade.sat==null?1:grade.sat) * state.satLift;
   u.uCon.value = grade.con==null?1:grade.con;
@@ -10986,7 +11025,7 @@ addEventListener("appinstalled", () => {
   syncControls();
   renderAll();
   booted = true;
-  console.log("%cForza Paint Archive · build 2026-08-03.4","color:#F0A32C;font-weight:700",
+  console.log("%cForza Paint Archive · build 2026-08-03.6","color:#F0A32C;font-weight:700",
     "— window.paintArchive is live. Try paintArchive.loadRoster()");
 })();
 </script>
