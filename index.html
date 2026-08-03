@@ -424,7 +424,7 @@ dl.api dd{color:var(--gauge);padding-left:13px}
 
 <div id="shell">
   <header id="topbar">
-    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.3</i></div>
+    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.4</i></div>
     <input id="search" type="search" placeholder="Search make, model, colour, hex…" aria-label="Search cars">
     <span class="spacer"></span>
     <span id="count" class="eyebrow"></span>
@@ -489,8 +489,8 @@ dl.api dd{color:var(--gauge);padding-left:13px}
           <input type="range" id="slEx" min="20" max="260" value="100">
           <label for="slFloor">Gloss limit <span class="num" id="vFloor">0.085</span></label>
           <input type="range" id="slFloor" min="18" max="260" value="85">
-          <label for="slSat">Saturation <span class="num" id="vSat">1.15</span></label>
-          <input type="range" id="slSat" min="70" max="170" value="115">
+          <label for="slSat">Saturation <span class="num" id="vSat">1.00</span></label>
+          <input type="range" id="slSat" min="70" max="170" value="100">
           <label for="slFlake">Flake <span class="num" id="vFlake">0.55</span></label>
           <input type="range" id="slFlake" min="0" max="100" value="55">
           <label for="slEye">Ground scale <span class="num" id="vEye">1.45</span></label>
@@ -5631,7 +5631,7 @@ const state = {
   scene3D:true, splatBudget:130000, customEnvs:null,
   ghToken:"", ghGist:"", syncRev:0, syncDirty:false,
   geminiKey:"", geminiModel:"gemini-2.5-flash",
-  roughFloor:0.085, satLift:1.15, flakeAmount:0.55, eyeH:1.45, quality:null,
+  roughFloor:0.085, satLift:1.00, flakeAmount:0.55, eyeH:1.45, quality:null,
   tone:"rec2020", gamut:"srgb",
   env:"Studio booth", gameLight:null, sun:{az:44, el:32}, exposure:1.0
 };
@@ -7043,7 +7043,7 @@ uniform sampler2D uEnvMap;
 uniform float uHasMap;
 uniform float uGroundY, uEyeH, uDomeR, uProject;
 uniform vec3 uSGamp[SG_MAX];
-uniform float uAo, uBleed, uDebug;
+uniform float uAo, uBleed, uDebug, uTint;
 uniform float uTone, uWhite, uSatBias, uSat, uCon, uEncode;
 uniform mat3 uInM, uOutM;
 uniform vec3 uLum;
@@ -7394,11 +7394,22 @@ void main(){
   float metal = uMetal;
   float flake = uFlake * (1.0 - vin * 0.30);
 
-  /* Encode back to sRGB so this still reads out the exact hex. */
+  /* True Colour answers "what is the stored hex", so it inverts the sRGB
+     curve the colour came in on — NOT the pipeline's transfer function. Using
+     encode() here meant a DCI-P3 pipeline read #b4121c back as #bd121c, nine
+     levels out, and Rec.709 four. The tint is not applied either: it belongs
+     to the material, not the colour. */
   if(uTrue > 0.5){
-    gl_FragColor = vec4(encode(albedo), 1.0);
+    vec3 t = clamp(albedo, 0.0, 1.0);
+    vec3 srgb = mix(t * 12.92,
+                    1.055 * pow(max(t, vec3(1e-6)), vec3(1.0/2.4)) - 0.055,
+                    step(vec3(0.0031308), t));
+    gl_FragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
     return;
   }
+
+  albedo *= uTint;
+  flakeTint *= uTint;
 
   float NoV0 = max(dot(N, V), 1e-4);
   float ao   = mix(1.0, clamp(vAo, 0.0, 1.0), uAo);
@@ -8080,6 +8091,7 @@ function initGL(){
     uSGdir:{value:Array.from({length:40}, () => new THREE.Vector4(0,1,0,1))},
     uSGamp:{value:Array.from({length:40}, () => new THREE.Vector3())},
     uAo:{value:1}, uBleed:{value:0.55}, uDebug:{value:0},
+    uTint:{value:1},
     uTone:{value:1}, uWhite:{value:2.6}, uSatBias:{value:0.55}, uEncode:{value:0},
     uSat:{value:1}, uCon:{value:1},
     uInM:{value:new THREE.Matrix3()}, uOutM:{value:new THREE.Matrix3()},
@@ -8418,8 +8430,13 @@ function pushPaint(override){
   const tint = f.tint == null ? 1 : f.tint;
   const hi = (c && f.mode !== 'solid' && c.highlightHex) ? c.highlightHex : base;
 
-  toLinear(u.uBase.value.set(base)).multiplyScalar(tint);
-  toLinear(u.uHigh.value.set(hi)).multiplyScalar(tint);
+  /* The finish tint is a property of the MATERIAL, not of the colour. Baking
+     it into uBase meant True Colour showed Carbon Fiber's #b4121c as #6e0b11 —
+     the stored hex darkened by 0.34 before the shader ever saw it. It is a
+     uniform now, applied after the True Colour exit. */
+  toLinear(u.uBase.value.set(base));
+  toLinear(u.uHigh.value.set(hi));
+  u.uTint.value = tint;
   /* A GGX lobe spans about roughness^2 radians. Below this the lobe is
      narrower than the gap between facets and the highlight breaks at every
      triangle edge. Three levels of PN subdivision bring the step to 0.371 deg,
@@ -10595,9 +10612,11 @@ $("slEl").oninput = e => { state.sun.el = +e.target.value; $("vEl").textContent 
    spans about roughness^2 radians — so below ~0.119 the highlight is narrower
    than a facet and breaks at every triangle edge. Exposed rather than fixed
    because where that becomes visible depends on the display and the eye. */
-/* Broad ambient over a coloured surface adds white and flattens it, which is
-   why the render reads paler than the hex. Applied in the working space,
-   before compression, so hue is untouched. */
+/* This was 1.15 to compensate for albedo being lit as though sRGB values were
+   linear, which cost real saturation. That bug is fixed — toLinear now runs on
+   the way in — so the lift was correcting something that no longer happens and
+   pushed colours past the hex. Neutral by default; still here because broad
+   ambient does genuinely add white. */
 /* Coverage and tilt together: at 0 the flake is a fine even shimmer, at 1 it
    is coarse and scattered like glitter. Real metallic sits near the middle. */
 /* How high the panorama was shot, in model lengths. Lower pulls the horizon in
@@ -10967,7 +10986,7 @@ addEventListener("appinstalled", () => {
   syncControls();
   renderAll();
   booted = true;
-  console.log("%cForza Paint Archive · build 2026-08-03.3","color:#F0A32C;font-weight:700",
+  console.log("%cForza Paint Archive · build 2026-08-03.4","color:#F0A32C;font-weight:700",
     "— window.paintArchive is live. Try paintArchive.loadRoster()");
 })();
 </script>
