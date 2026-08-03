@@ -424,7 +424,7 @@ dl.api dd{color:var(--gauge);padding-left:13px}
 
 <div id="shell">
   <header id="topbar">
-    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.2</i></div>
+    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.3</i></div>
     <input id="search" type="search" placeholder="Search make, model, colour, hex…" aria-label="Search cars">
     <span class="spacer"></span>
     <span id="count" class="eyebrow"></span>
@@ -9381,6 +9381,15 @@ const EFFECT_BRIEF = {
     "highlightHex is the flake itself, seen only in the sparkle. Brighter and a " +
     "little more saturated than the base.",
   chrome: "A mirror shows the room, not itself. Keep the colour almost neutral.",
+  _neutral:
+    "CRITICAL: the requested colour is a NEUTRAL — a silver, platinum, grey or " +
+    "graphite. It is neutral on purpose. Do NOT give it a hue. Below about 12 " +
+    "saturation a colour has no meaningful hue at all, so 'saturating' it does " +
+    "not bring out a colour, it invents an arbitrary one: #c0c0c0 taken to 62 " +
+    "saturation comes out pure red. Keep every hex in this recipe at saturation " +
+    "under 15. Make the contrast out of VALUE instead — a champagne anodising " +
+    "against a graphite one is a brightness difference, not a hue one. Names " +
+    "should suit a metal, not a colour.",
   _second:
     "IMPORTANT: Chrome, Aluminum, Carbon Fiber, Normal, Semi-Gloss and Matte have " +
     "ONE colour slot in Forza. For those, leave highlightHex empty and put any " +
@@ -9458,9 +9467,15 @@ function fitColour(hex, rule, baseHex){
   return hsvToHex(h, sa, v);
 }
 
-function enforceEffect(o, key){
-  const R = EFFECT_RULES[key];
+function enforceEffect(o, key, neutral){
+  let R = EFFECT_RULES[key];
   if(!R || !o) return o;
+  if(neutral){
+    /* A saturation FLOOR is exactly the thing that invents a hue from a grey,
+       so for a neutral input the floors become ceilings. */
+    const relax = r => r && r.s ? {...r, s:[0, Math.min(r.s[1], NEUTRAL_S + 4)]} : r;
+    R = {...R, base:relax(R.base), hi:relax(R.hi), v0:relax(R.v0), v1:relax(R.v1)};
+  }
   if(R.type && !R.type.test(o.paintType || "")){
     /* Pick the gloss level the model asked for, if it named one. */
     const gloss = /Matte/.test(o.paintType) ? " Matte"
@@ -9489,10 +9504,61 @@ function enforceEffect(o, key){
   return o;
 }
 
+/* ---- neutrals ----
+   Below about 12 saturation a colour's hue is rounding noise in the 8-bit
+   channels rather than a choice. #c0c0c0 is exactly neutral so its hue reads
+   0, and forcing saturation up turned "anodised silver" into pure red;
+   platinum #e5e4e2 came out orange. Silver, platinum, graphite and gunmetal
+   are neutral ON PURPOSE.
+
+   So when the input is neutral, no step may manufacture a hue — and the
+   contrast the recipe was getting from saturation has to come from VALUE
+   instead, which is how these finishes actually differ in life: a champagne
+   anodising against a graphite one is a brightness difference, not a hue. */
+const NEUTRAL_S = 12;
+const isNeutral = hex => /^#[0-9a-fA-F]{6}$/.test(hex || "") && hexToHSV(hex).s < NEUTRAL_S;
+
+function neutralise(o, baseHex){
+  if(!isNeutral(baseHex)) return o;
+  const src = hexToHSV(baseHex);
+  /* Whatever faint tint the input has is kept; nothing beyond it is invented.
+     A TRUE neutral has no tint to keep — #c0c0c0 reports hue 0 because it has
+     no hue, not because it is red — so it must stay at zero rather than be
+     given the 7 points a near-neutral is allowed. */
+  const cap = src.s < 2 ? src.s : Math.min(NEUTRAL_S + 4, src.s + 7);
+  const pull = hex => {
+    if(!/^#[0-9a-fA-F]{6}$/.test(hex || "")) return hex;
+    const c = hexToHSV(hex);
+    return c.s <= cap ? hex : hsvToHex(src.h, cap, c.v);
+  };
+  o.baseHex = pull(o.baseHex);
+  if(o.highlightHex) o.highlightHex = pull(o.highlightHex);
+  o.vinyl = (o.vinyl || []).map(v => (v && v.hex) ? {hex: pull(v.hex), opacity: v.opacity} : v);
+
+  /* Restore the separation that saturation was carrying, as value. */
+  const spread = (hex, dv) => {
+    if(!/^#[0-9a-fA-F]{6}$/.test(hex || "")) return hex;
+    const c = hexToHSV(hex);
+    return hsvToHex(c.h, c.s, Math.max(0, Math.min(100, c.v + dv)));
+  };
+  const bv = hexToHSV(o.baseHex).v;
+  if(o.highlightHex){
+    const hv = hexToHSV(o.highlightHex).v;
+    /* Push them apart if they have collapsed together. */
+    if(Math.abs(hv - bv) < 16) o.highlightHex = spread(o.highlightHex, hv >= bv ? 22 : -22);
+  }
+  if(o.vinyl[0] && o.vinyl[0].hex){
+    const vv = hexToHSV(o.vinyl[0].hex).v;
+    if(Math.abs(vv - bv) < 12) o.vinyl[0].hex = spread(o.vinyl[0].hex, vv >= bv ? 18 : -18);
+  }
+  return o;
+}
+
 function labDerive(){
   const e = EFFECTS[lab.effect] || EFFECTS.twotone;
   lab.out = e.make(lab.base);
   lab.out.colorName = lab.name || "";
+  neutralise(lab.out, lab.base);
   labNormalise();
   renderLab();
   if(lab.preview) labApplyPreview();
@@ -9753,6 +9819,7 @@ How this renderer treats the fields:
 - paintType is one of: Normal, Normal Semi-Gloss, Normal Matte, Metal Flake Polished, Metal Flake Semi-Gloss, Metal Flake Matte, Two-Tone Polished, Two-Tone Semi-Gloss, Two-Tone Matte, Aluminum Polished, Carbon Fiber Polished, Chrome Polished, Spectraflame Polished.
 
 ${EFFECT_BRIEF._second}
+${isNeutral(lab.base) ? EFFECT_BRIEF._neutral : ""}
 
 What this particular effect requires — miss any of it and the effect simply
 does not appear, however good the colours look on their own:
@@ -9799,7 +9866,8 @@ JSON shape:
       }),
       why: o.why || ""
     };
-    enforceEffect(lab.out, lab.effect);
+    enforceEffect(lab.out, lab.effect, isNeutral(lab.base));
+    neutralise(lab.out, lab.base);
     labNormalise();
     renderLab();
     if(lab.preview) labApplyPreview();
@@ -10899,7 +10967,7 @@ addEventListener("appinstalled", () => {
   syncControls();
   renderAll();
   booted = true;
-  console.log("%cForza Paint Archive · build 2026-08-03.2","color:#F0A32C;font-weight:700",
+  console.log("%cForza Paint Archive · build 2026-08-03.3","color:#F0A32C;font-weight:700",
     "— window.paintArchive is live. Try paintArchive.loadRoster()");
 })();
 </script>
