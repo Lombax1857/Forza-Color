@@ -424,7 +424,7 @@ dl.api dd{color:var(--gauge);padding-left:13px}
 
 <div id="shell">
   <header id="topbar">
-    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-02.9</i></div>
+    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.2</i></div>
     <input id="search" type="search" placeholder="Search make, model, colour, hex…" aria-label="Search cars">
     <span class="spacer"></span>
     <span id="count" class="eyebrow"></span>
@@ -589,7 +589,6 @@ const GAMES = [
   {k:"fh6", short:"FH6", full:"Horizon 6"}
 ];
 
-/* Finish parameters. `second` = does this finish accept a highlight colour. */
 /* ---- Finishes ----
    Forza builds these as MATERIAL x GLOSS LEVEL, so this generates the matrix
    rather than listing 20-odd rows by hand. Legacy names in the sheet map on.
@@ -609,13 +608,13 @@ const GLOSS = {
   "Matte":      {rough:0.72, coat:0.00, sheen:0.42}
 };
 const MATERIAL = {
-  "Normal":       {metal:.02, flake:0,   fres:3.0, mode:"solid",  flakeUm:0,  aniso:0,   weave:0, tint:1.00},
-  "Metal Flake":  {metal:.34, flake:1.0, fres:2.6, mode:"flake",  flakeUm:105, aniso:0,   weave:0, tint:1.00},
-  "Two-Tone":     {metal:.10, flake:.10, fres:1.45, mode:"travel", flakeUm:95, aniso:0,   weave:0, tint:1.00},
-  "Aluminum":     {metal:1.0, flake:.10, fres:2.6, mode:"solid",  flakeUm:88, aniso:0.82,weave:0, tint:0.96},
-  "Carbon Fiber": {metal:.48, flake:.05, fres:2.3, mode:"solid",  flakeUm:92, aniso:0.90,weave:1, tint:0.34},
-  "Chrome":       {metal:1.0, flake:0,   fres:3.4, mode:"solid",  flakeUm:0,  aniso:0,   weave:0, tint:1.00},
-  "Spectraflame": {metal:.42, flake:.55, fres:1.15, mode:"travel", flakeUm:100, aniso:0,   weave:0, tint:1.00}
+  "Normal":       {metal:.02, flake:0,   fres:3.0, mode:"solid",  flakeUm:0,  aniso:0,   weave:0, tint:1.00, second:false},
+  "Metal Flake":  {metal:.34, flake:1.0, fres:2.6, mode:"flake",  flakeUm:105, aniso:0,   weave:0, tint:1.00, second:true},
+  "Two-Tone":     {metal:.10, flake:.10, fres:1.45, mode:"travel", flakeUm:95, aniso:0,   weave:0, tint:1.00, second:true},
+  "Aluminum":     {metal:1.0, flake:.10, fres:2.6, mode:"solid",  flakeUm:88, aniso:0.82,weave:0, tint:0.96, second:false},
+  "Carbon Fiber": {metal:.48, flake:.05, fres:2.3, mode:"solid",  flakeUm:92, aniso:0.90,weave:1, tint:0.34, second:false},
+  "Chrome":       {metal:1.0, flake:0,   fres:3.4, mode:"solid",  flakeUm:0,  aniso:0,   weave:0, tint:1.00, second:false},
+  "Spectraflame": {metal:.42, flake:.55, fres:1.15, mode:"travel", flakeUm:100, aniso:0,   weave:0, tint:1.00, second:true}
 };
 /* ---- the finish list ----
    A cross-product of every material against every gloss level invents names
@@ -640,7 +639,7 @@ const FINISH = {};
     const rough = m.metal > 0.9 ? g.rough * 0.45 : g.rough;
     return {rough, coat:g.coat, sheen:g.sheen, metal:m.metal, flake:m.flake,
             fres:m.fres, mode:m.mode, flakeUm:m.flakeUm, aniso:m.aniso,
-            weave:m.weave, tint:m.tint};
+            weave:m.weave, tint:m.tint, second:!!m.second};
   };
   FINISH["Normal"]       = build("Normal", "Polished");
   FINISH["Semi-Gloss"]   = build("Normal", "Semi-Gloss");
@@ -671,6 +670,15 @@ const FINISH_ALIAS = {
 /* Alias first: a stored "Normal Polished" must come back as "Normal", or it
    renders correctly and still shows a name the game does not use. */
 const finishName = t => FINISH_ALIAS[t] || (FINISH[t] ? t : "Normal");
+
+/* ---- which finishes take a second colour ----
+   Chrome, Aluminum, Carbon Fiber, Normal, Semi-Gloss and Matte have one colour
+   slot in the game and nothing else. Confirmed by the sheet: across 84 painted
+   entries not one of those types carries a highlight, while every Metal Flake
+   and Two-Tone does. The vinyl layers are the way to get a second colour onto
+   them, which is what the sheet already does — 4 of 5 Aluminum entries and the
+   Carbon Fiber one all carry vinyl. */
+const takesSecond = t => !!(FINISH[finishName(t)] || {}).second;
 for(const k in FINISH_ALIAS) if(!FINISH[k]) FINISH[k] = FINISH[FINISH_ALIAS[k]];
 
 const MODE_ID = {solid:0, flake:1, travel:2};
@@ -9275,10 +9283,10 @@ const EFFECTS = {
     label:"Satin",
     note:"Semi-gloss with a soft flake, no clearcoat depth.",
     make(hex){
-      /* Metal Flake has no gloss variants in Forza, so a satin sparkle is not
-         a thing the game can express — plain Semi-Gloss is what satin is. */
-      return {paintType:"Semi-Gloss", baseHex:hex,
-              highlightHex: shift(hex, -6, -0.10, 0.14), vinyl:[{},{}]};
+      /* Metal Flake has no gloss variants, and Semi-Gloss has no second slot,
+         so a satin two-colour is a vinyl over a single coat. */
+      return {paintType:"Semi-Gloss", baseHex:hex, highlightHex: "",
+              vinyl:[{hex: shift(hex, -6, -0.10, 0.16), opacity: 30}, {}]};
     }
   },
   /* ---- metal that is not chrome ----
@@ -9288,13 +9296,16 @@ const EFFECTS = {
      reflection along one axis, which is exactly what lets a hue read. */
   brushed: {
     label:"Brushed metal",
-    note:"Aluminum with a desaturated, slightly lifted colour — gunmetal, titanium, steel. Reads as metal that has a tint rather than a mirror.",
+    note:"Aluminum Semi-Gloss. Polished is a 0.1° lobe — a mirror — while matte scatters over 6° and loses the grain direction entirely. Brushed steel is the 1.3° in between: a highlight stretched along the grain, which is the thing that makes it read as brushed.",
     make(hex){
+      /* Aluminum has no second slot, so the tint goes where the sheet puts it
+         — a light vinyl over the metal. */
       const c = hexToHSV(hex);
-      return {paintType:"Aluminum Polished",
+      return {paintType:"Aluminum Semi-Gloss",
               baseHex: hsvToHex(c.h, Math.min(c.s, 26), Math.min(Math.max(c.v, 42), 80)),
-              highlightHex: hsvToHex(c.h + 2, Math.min(c.s, 18), Math.min(Math.max(c.v + 18, 58), 92)),
-              vinyl:[{},{}]};
+              highlightHex: "",
+              vinyl:[{hex: hsvToHex(c.h, Math.min(c.s, 20), Math.min(Math.max(c.v + 16, 58), 90)),
+                      opacity: 30}, {}]};
     }
   },
   anodised: {
@@ -9304,27 +9315,31 @@ const EFFECTS = {
       const c = hexToHSV(hex);
       return {paintType:"Aluminum Polished",
               baseHex: hsvToHex(c.h, Math.max(c.s, 62), Math.min(Math.max(c.v, 34), 72)),
-              highlightHex: hsvToHex(c.h - 16, Math.max(c.s, 55), Math.min(Math.max(c.v + 22, 55), 92)),
-              vinyl:[{},{}]};
+              highlightHex: "",
+              vinyl:[{hex: hsvToHex(c.h - 16, Math.max(c.s, 58), Math.min(Math.max(c.v + 20, 55), 90)),
+                      opacity: 45}, {}]};
     }
   },
   gunmetal: {
     label:"Gunmetal",
-    note:"Near-neutral dark metal with just enough hue to avoid reading as grey. Aluminum Semi-Gloss, so it does not mirror.",
+    note:"Aluminum Matte. A parkerised or bead-blasted finish genuinely has no grain to catch, so the wide scattered lobe is right here in a way it is not for brushed.",
     make(hex){
       const c = hexToHSV(hex);
-      return {paintType:"Aluminum Semi-Gloss",
+      return {paintType:"Aluminum Matte",
               baseHex: hsvToHex(c.h, Math.min(c.s, 16), Math.min(Math.max(c.v, 18), 34)),
-              highlightHex: hsvToHex(c.h, Math.min(c.s, 24), Math.min(Math.max(c.v, 36), 58)),
-              vinyl:[{},{}]};
+              highlightHex: "",
+              vinyl:[{hex: hsvToHex(c.h, Math.min(c.s, 22), Math.min(Math.max(c.v + 14, 34), 56)),
+                      opacity: 35}, {}]};
     }
   },
   chrome: {
     label:"Tinted chrome",
     note:"Near-mirror metal carrying a colour. Drop the gloss limit for the full effect.",
     make(hex){
+      /* Chrome takes one colour. A tint over it is a vinyl, not a highlight. */
       return {paintType:"Chrome", baseHex: shift(hex, 0, -0.20, 0.24),
-              highlightHex: hex, vinyl:[{},{}]};
+              highlightHex: "",
+              vinyl:[{hex: shift(hex, 0, 0.10, -0.05), opacity: 25}, {}]};
     }
   }
 };
@@ -9366,16 +9381,23 @@ const EFFECT_BRIEF = {
     "highlightHex is the flake itself, seen only in the sparkle. Brighter and a " +
     "little more saturated than the base.",
   chrome: "A mirror shows the room, not itself. Keep the colour almost neutral.",
+  _second:
+    "IMPORTANT: Chrome, Aluminum, Carbon Fiber, Normal, Semi-Gloss and Matte have " +
+    "ONE colour slot in Forza. For those, leave highlightHex empty and put any " +
+    "second colour in vinyl[0] instead — that is how the game is actually used. " +
+    "Only Metal Flake, Two-Tone and Spectraflame take a highlightHex.",
   brushed:
-    "Aluminum with a drawn grain. It DOES carry a colour, because the grain " +
-    "scatters the reflection instead of returning it whole — but a desaturated " +
-    "one: steel, titanium, warm gunmetal. Saturation under 30.",
+    "Aluminum SEMI-GLOSS — polished is a mirror and matte loses the grain. It " +
+    "carries a colour because the grain scatters the reflection along one axis " +
+    "instead of returning it whole, but a desaturated one: steel, titanium, " +
+    "warm pewter. Saturation under 30.",
   anodised:
     "Aluminum carrying a saturated colour, the way an anodised bike part does. " +
     "Keep saturation above 45; highlightHex is the angular shift.",
   gunmetal:
-    "Near-neutral dark metal — saturation under 20, value 15-38 — with just " +
-    "enough hue that it does not read as flat grey.",
+    "Aluminum MATTE. Near-neutral dark metal — saturation under 20, value " +
+    "15-38 — with just enough hue that it does not read as flat grey. " +
+    "Parkerised steel, bead-blasted alloy.",
   satin: "Semi-gloss, so the colour carries it rather than the reflection."
 };
 
@@ -9408,9 +9430,9 @@ const EFFECT_RULES = {
     why: "deep pigment over a bright flake, so the depth comes from underneath"
   },
   chrome:   {type:/^Chrome$/},
-  brushed:  {type:/^Aluminum/, base:{s:[0,30], v:[35,85]}},
-  anodised: {type:/^Aluminum/, base:{s:[45,100]}, hi:{s:[40,100], v:[45,95]}},
-  gunmetal: {type:/^Aluminum/, base:{s:[0,20], v:[15,38]}, hi:{s:[0,28], v:[30,60]}},
+  brushed:  {type:/^Aluminum Semi-Gloss$/, base:{s:[0,30], v:[35,85]}, v0:{s:[0,26], op:[20,45]}},
+  anodised: {type:/^Aluminum/, base:{s:[45,100]}, v0:{rotate:[-30,-8], s:[50,100], op:[30,60]}},
+  gunmetal: {type:/^Aluminum Matte$/, base:{s:[0,20], v:[15,38]}, v0:{s:[0,26], v:[28,58], op:[25,45]}},
   flake:    {type:/Metal Flake/, hi:{s:[35,100], v:[45,100]}},
   twotone:  {type:/Two-Tone/},
   satin:    {type:/^Semi-Gloss$/}
@@ -9471,6 +9493,7 @@ function labDerive(){
   const e = EFFECTS[lab.effect] || EFFECTS.twotone;
   lab.out = e.make(lab.base);
   lab.out.colorName = lab.name || "";
+  labNormalise();
   renderLab();
   if(lab.preview) labApplyPreview();
 }
@@ -9615,6 +9638,12 @@ function labGet(L){
   }
   return {hex: o[L.key] || "", op: 100};
 }
+/* Drop a second colour the chosen type cannot hold, rather than keeping it
+   invisibly and writing it out on Apply or Copy. */
+function labNormalise(){
+  if(lab.out && !takesSecond(lab.out.paintType)) lab.out.highlightHex = "";
+}
+
 function labSet(L, hex, op){
   const o = lab.out;
   if(!o) return;
@@ -9634,12 +9663,21 @@ function renderLab(){
   const o = lab.out;
   const isFlake = /Metal Flake|Spectraflame|Chrome|Aluminum/.test(o.paintType);
 
+  /* Chrome, Aluminum, Carbon Fiber and the plain gloss levels have one colour
+     slot in the game. Offering a second here would let you build a paint that
+     cannot be entered — the vinyl layers are the way to get a second colour
+     onto those, which is what the sheet already does. */
+  const second = takesSecond(o.paintType);
+  const shown = LAYERS.filter(L => second || L.key !== "highlightHex");
+
   box.innerHTML =
     `<div class="secthead">
        <span class="eyebrow">${esc(o.colorName || "Untitled")}</span>
        <span class="eyebrow">${esc(o.paintType)}</span>
      </div>` +
-    LAYERS.map((L, i) => {
+    (second ? "" : `<p class="note">${esc(o.paintType)} has no second colour in
+      the game. Use a vinyl layer for one.</p>`) +
+    shown.map((L, i) => {
       const g = labGet(L);
       const c = g.hex ? hexToHSV(g.hex) : null;
       const label = L.key === "highlightHex" ? (isFlake ? "Flake" : "Highlight") : L.label;
@@ -9667,7 +9705,7 @@ function renderLab(){
     (o.why ? `<p class="note">${esc(o.why)}</p>` : "");
 
   box.querySelectorAll("[data-l]").forEach(el => {
-    const L = LAYERS[+el.dataset.l], f = el.dataset.f;
+    const L = shown[+el.dataset.l], f = el.dataset.f;
     const commit = () => {
       const g = labGet(L);
       if(f === "sw" || f === "hex"){
@@ -9713,6 +9751,8 @@ How this renderer treats the fields:
 - highlightHex is the second colour. On "Two-Tone" types it is the angular flop, strongest at the silhouette. On "Metal Flake" types it is the colour of the flake itself, seen only in the sparkle, NOT in the body colour.
 - vinyl layers are whole-body colour films over the paint at an opacity. They tint the body but the flake still glints through them. A dark vinyl over a chromatic flake is how a "ghosted" paint is built.
 - paintType is one of: Normal, Normal Semi-Gloss, Normal Matte, Metal Flake Polished, Metal Flake Semi-Gloss, Metal Flake Matte, Two-Tone Polished, Two-Tone Semi-Gloss, Two-Tone Matte, Aluminum Polished, Carbon Fiber Polished, Chrome Polished, Spectraflame Polished.
+
+${EFFECT_BRIEF._second}
 
 What this particular effect requires — miss any of it and the effect simply
 does not appear, however good the colours look on their own:
@@ -9760,6 +9800,7 @@ JSON shape:
       why: o.why || ""
     };
     enforceEffect(lab.out, lab.effect);
+    labNormalise();
     renderLab();
     if(lab.preview) labApplyPreview();
     toast(lab.out.colorName || "Generated");
@@ -10858,7 +10899,7 @@ addEventListener("appinstalled", () => {
   syncControls();
   renderAll();
   booted = true;
-  console.log("%cForza Paint Archive · build 2026-08-02.9","color:#F0A32C;font-weight:700",
+  console.log("%cForza Paint Archive · build 2026-08-03.2","color:#F0A32C;font-weight:700",
     "— window.paintArchive is live. Try paintArchive.loadRoster()");
 })();
 </script>
