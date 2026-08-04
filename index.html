@@ -431,7 +431,7 @@ dl.api dd{color:var(--gauge);padding-left:13px}
 
 <div id="shell">
   <header id="topbar">
-    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.6</i></div>
+    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.9</i></div>
     <input id="search" type="search" placeholder="Search make, model, colour, hex…" aria-label="Search cars">
     <span class="spacer"></span>
     <span id="count" class="eyebrow"></span>
@@ -621,7 +621,12 @@ const MATERIAL = {
   "Aluminum":     {metal:1.0, flake:.10, fres:2.6, mode:"solid",  flakeUm:88, aniso:0.82,weave:0, tint:0.96, second:false},
   "Carbon Fiber": {metal:.48, flake:.05, fres:2.3, mode:"solid",  flakeUm:92, aniso:0.90,weave:1, tint:0.34, second:false},
   "Chrome":       {metal:1.0, flake:0,   fres:3.4, mode:"solid",  flakeUm:0,  aniso:0,   weave:0, tint:1.00, second:false},
-  "Spectraflame": {metal:.42, flake:.55, fres:1.15, mode:"travel", flakeUm:100, aniso:0,   weave:0, tint:1.00, second:true}
+  /* Spectraflame is a FIXED palette — the Hot Wheels candy-over-chrome set.
+     You pick from it; you do not mix one. There is no white, grey or black in
+     it either, so it cannot be used as a neutral base to veil over. Recorded
+     here so a car that wears it can be catalogued, but the Lab must not derive
+     colours for it and nothing may treat it as customisable. */
+  "Spectraflame": {metal:.42, flake:.55, fres:1.15, mode:"travel", flakeUm:100, aniso:0,   weave:0, tint:1.00, second:true, fixed:true}
 };
 /* ---- the finish list ----
    A cross-product of every material against every gloss level invents names
@@ -646,7 +651,7 @@ const FINISH = {};
     const rough = m.metal > 0.9 ? g.rough * 0.45 : g.rough;
     return {rough, coat:g.coat, sheen:g.sheen, metal:m.metal, flake:m.flake,
             fres:m.fres, mode:m.mode, flakeUm:m.flakeUm, aniso:m.aniso,
-            weave:m.weave, tint:m.tint, second:!!m.second};
+            weave:m.weave, tint:m.tint, second:!!m.second, fixed:!!m.fixed};
   };
   FINISH["Normal"]       = build("Normal", "Polished");
   FINISH["Semi-Gloss"]   = build("Normal", "Semi-Gloss");
@@ -686,6 +691,8 @@ const finishName = t => FINISH_ALIAS[t] || (FINISH[t] ? t : "Normal");
    them, which is what the sheet already does — 4 of 5 Aluminum entries and the
    Carbon Fiber one all carry vinyl. */
 const takesSecond = t => !!(FINISH[finishName(t)] || {}).second;
+/* A fixed-palette finish is chosen from, not mixed. */
+const isFixedPalette = t => !!(FINISH[finishName(t)] || {}).fixed;
 for(const k in FINISH_ALIAS) if(!FINISH[k]) FINISH[k] = FINISH[FINISH_ALIAS[k]];
 
 const MODE_ID = {solid:0, flake:1, travel:2};
@@ -5528,7 +5535,13 @@ function hexToHSV(hex){
 }
 
 function hsvToHex(h,s,v){
-  h=((h%360)+360)%360; s/=100; v/=100;
+  /* Clamp here rather than trusting every caller. Out of range, the channel
+     maths overflows and Math.round(362).toString(16) is "16a" — three digits,
+     so the result is a nine-character string that is not a hex at all and
+     every downstream parse returns null. */
+  h=((h%360)+360)%360;
+  s=Math.max(0, Math.min(100, s))/100;
+  v=Math.max(0, Math.min(100, v))/100;
   const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
   let r,g,b;
   if(h<60)[r,g,b]=[c,x,0]; else if(h<120)[r,g,b]=[x,c,0];
@@ -9310,11 +9323,19 @@ const EFFECTS = {
   },
   phased: {
     label:"Phased",
-    note:"A hue-rotated vinyl over the basecoat, so the colour reads as two things at once. Phased Pistachio works this way.",
+    note:"The mirror of ghosted. Where ghosted hides a colour under dark vinyl and lets only the sparkle betray it, phased veils it under a PALE one — present but washed, seen through something. An apparition rather than a duotone.",
     make(hex){
-      return {paintType:"Metal Flake", baseHex:hex,
-              highlightHex: shift(hex, 2, -0.12, 0.30),
-              vinyl:[{hex: shift(hex, 168, -0.06, 0.06), opacity:60},{}]};
+      const c = hexToHSV(hex);
+      /* The colour underneath is deepened a little, because the veil is about
+         to lift it — without that the paint ends up merely pale rather than
+         pale-over-something. */
+      return {paintType:"Metal Flake",
+              baseHex: hsvToHex(c.h, Math.min(c.s + 8, 100), Math.max(c.v - 12, 8)),
+              /* The flake keeps the true colour and glints through the veil,
+                 exactly as ghosted's flake glints through the dark one. */
+              highlightHex: hsvToHex(c.h, Math.min(c.s + 6, 100), Math.min(c.v + 18, 92)),
+              vinyl:[{hex: hsvToHex(c.h, Math.min(c.s * 0.22, 18),
+                                    Math.min(Math.max(c.v + 42, 84), 97)), opacity:58},{}]};
     }
   },
   tritone: {
@@ -9324,6 +9345,20 @@ const EFFECTS = {
       return {paintType:"Two-Tone Polished", baseHex:hex,
               highlightHex: shift(hex, -46, 0.14, -0.30),
               vinyl:[{hex: shift(hex, 92, -0.10, 0.12), opacity:28},{}]};
+    }
+  },
+  spectra: {
+    label:"Spectraflame-like",
+    note:"Spectraflame itself is a fixed palette, but its character can be approximated. Its signature is chroma held all the way from highlight to shadow, and holding ONE hue across pigment, flake and veil is what does that — a lighter flake dilutes toward white and drops the highlight chroma from 95% to 76%. Chrome plus a coloured vinyl gets the mirror depth but loses the colour entirely in shadow, which is the wrong failure.",
+    make(hex){
+      const c = hexToHSV(hex);
+      /* Everything on the same hue: the pigment deepened, the flake brighter,
+         and a saturated veil of the same colour to add depth without
+         introducing a second one. */
+      return {paintType:"Metal Flake",
+              baseHex: hsvToHex(c.h, Math.min(c.s + 6, 100), Math.max(c.v * 0.62, 10)),
+              highlightHex: hsvToHex(c.h, 100, Math.min(c.v * 1.35, 100)),
+              vinyl:[{hex: hsvToHex(c.h, 100, Math.max(c.v * 0.55, 8)), opacity:30},{}]};
     }
   },
   candy: {
@@ -9419,10 +9454,14 @@ const EFFECT_BRIEF = {
     "shows as a black car that flashes colour only where the flake catches light. " +
     "If you give the body a colour there is nothing to ghost.",
   phased:
-    "baseHex is the colour you first read. Vinyl 1 must be a DIFFERENT HUE, rotated " +
-    "120-200 degrees around the wheel from the base, at 45-70% opacity. The two " +
-    "hues beat against each other as the panel turns. Same hue in both and it is " +
-    "just a tint.",
+    "The exact inverse of ghosted. Ghosted hides a colour under near-black vinyl " +
+    "so only the flake betrays it; phased VEILS a colour under a PALE one, so it " +
+    "is present but washed — a ghostly apparition rather than a second colour. " +
+    "baseHex is the target colour, kept saturated and a little deepened (value " +
+    "under 62). highlightHex is the flake, the true colour, brighter, so it " +
+    "glints up through the veil. Vinyl 1 is the veil: nearly WHITE — saturation " +
+    "under 20, value above 80 — at 45-72% opacity. Do NOT rotate the hue: the " +
+    "whole point is one colour seen through something, not two colours meeting.",
   tritone:
     "Three hues: baseHex, a highlightHex rotated 25-90 degrees the other way for the " +
     "angular flop, and a vinyl in a third hue at low opacity over both.",
@@ -9436,6 +9475,13 @@ const EFFECT_BRIEF = {
   flake:
     "highlightHex is the flake itself, seen only in the sparkle. Brighter and a " +
     "little more saturated than the base.",
+  spectra:
+    "Approximating Spectraflame, which is itself a fixed palette you cannot mix. " +
+    "Its character is chroma sustained from highlight into shadow. Use ONE hue " +
+    "for baseHex, highlightHex and vinyl 1 — vary only saturation and value. A " +
+    "flake of a different or lighter hue dilutes toward white and destroys the " +
+    "effect. Base deep and saturated, flake bright and fully saturated, vinyl a " +
+    "dark saturated version at 20-45%.",
   chrome: "A mirror shows the room, not itself. Keep the colour almost neutral.",
   _neutral:
     "CRITICAL: the requested colour is a NEUTRAL — a silver, platinum, grey or " +
@@ -9446,6 +9492,10 @@ const EFFECT_BRIEF = {
     "under 15. Make the contrast out of VALUE instead — a champagne anodising " +
     "against a graphite one is a brightness difference, not a hue one. Names " +
     "should suit a metal, not a colour.",
+  _fixed:
+    "Spectraflame is a FIXED palette in Forza — the Hot Wheels candy-over-chrome " +
+    "set. It is chosen from, not mixed, and it contains no white, grey or black. " +
+    "Never propose it for a new colour.",
   _second:
     "IMPORTANT: Chrome, Aluminum, Carbon Fiber, Normal, Semi-Gloss and Matte have " +
     "ONE colour slot in Forza. For those, leave highlightHex empty and put any " +
@@ -9476,16 +9526,28 @@ const EFFECT_RULES = {
     why: "black body, the flake glinting through dark vinyl"
   },
   phased: {
-    type: /Metal Flake|Two-Tone/,
-    hi:   {s:[10, 70], v:[55, 100]},
-    v0:   {rotate:[120, 200], s:[25, 80], v:[45, 90], op:[45, 70]},
-    why: "a hue-rotated film over the basecoat, so it reads as two colours at once"
+    /* The inverse of ghosted's bounds: there the vinyl is dark and the flake
+       mid, here the vinyl is pale and the base sits under it. */
+    type: /Metal Flake/,
+    base: {v:[8, 62]},
+    hi:   {s:[30, 100], v:[55, 95]},
+    /* A little inside the boundary, so 8-bit quantisation cannot land the
+       repaired value back outside it. */
+    v0:   {s:[0, 17], v:[84, 99], op:[48, 72]},
+    why: "a pale veil over the colour, with the flake glinting through it"
   },
   tritone: {
     type: /Two-Tone/,
     hi:  {rotate:[-90, -25], s:[30, 100]},
     v0:  {rotate:[60, 140], op:[20, 45]},
     why: "three hues in play as the body turns"
+  },
+  spectra: {
+    type: /^Metal Flake$/,
+    base: {s:[70,100], v:[10,55]},
+    hi:   {s:[80,100], v:[60,100]},
+    v0:   {s:[75,100], v:[8,50], op:[20,45]},
+    why: "one hue across pigment, flake and veil, so chroma survives into the shadows"
   },
   candy: {
     type: /Metal Flake/,
@@ -9536,8 +9598,11 @@ function enforceEffect(o, key, neutral){
     /* Pick the gloss level the model asked for, if it named one. */
     const gloss = /Matte/.test(o.paintType) ? " Matte"
                 : /Semi-Gloss/.test(o.paintType) ? " Semi-Gloss" : " Polished";
-    const want = Object.keys(FINISH).find(k => R.type.test(k) && k.endsWith(gloss.trim()))
-              || Object.keys(FINISH).find(k => R.type.test(k));
+    /* Search the canonical list, not FINISH — that also holds the legacy
+       aliases, so this was resolving "Metal Flake" to "Metal Flake Polished",
+       a name the game does not have. */
+    const want = TYPES.find(k => R.type.test(k) && k.endsWith(gloss.trim()))
+              || TYPES.find(k => R.type.test(k));
     if(want) o.paintType = want;
   }
   if(R.base) o.baseHex = fitColour(o.baseHex, R.base);
@@ -9790,6 +9855,7 @@ function renderLab(){
      cannot be entered — the vinyl layers are the way to get a second colour
      onto those, which is what the sheet already does. */
   const second = takesSecond(o.paintType);
+  const fixed = isFixedPalette(o.paintType);
   const shown = LAYERS.filter(L => second || L.key !== "highlightHex");
 
   box.innerHTML =
@@ -9797,6 +9863,9 @@ function renderLab(){
        <span class="eyebrow">${esc(o.colorName || "Untitled")}</span>
        <span class="eyebrow">${esc(o.paintType)}</span>
      </div>` +
+    (fixed ? `<p class="note"><b style="color:var(--alarm)">${esc(o.paintType)} is a
+      fixed palette</b> — you pick from it rather than mixing one, so these hexes
+      are a record of a paint that exists, not a recipe for a new one.</p>` : "") +
     (second ? "" : `<p class="note">${esc(o.paintType)} has no second colour in
       the game. Use a vinyl layer for one.</p>`) +
     shown.map((L, i) => {
@@ -9875,6 +9944,7 @@ How this renderer treats the fields:
 - paintType is one of: Normal, Normal Semi-Gloss, Normal Matte, Metal Flake Polished, Metal Flake Semi-Gloss, Metal Flake Matte, Two-Tone Polished, Two-Tone Semi-Gloss, Two-Tone Matte, Aluminum Polished, Carbon Fiber Polished, Chrome Polished, Spectraflame Polished.
 
 ${EFFECT_BRIEF._second}
+${EFFECT_BRIEF._fixed}
 ${isNeutral(lab.base) ? EFFECT_BRIEF._neutral : ""}
 
 What this particular effect requires — miss any of it and the effect simply
@@ -11025,7 +11095,7 @@ addEventListener("appinstalled", () => {
   syncControls();
   renderAll();
   booted = true;
-  console.log("%cForza Paint Archive · build 2026-08-03.6","color:#F0A32C;font-weight:700",
+  console.log("%cForza Paint Archive · build 2026-08-03.9","color:#F0A32C;font-weight:700",
     "— window.paintArchive is live. Try paintArchive.loadRoster()");
 })();
 </script>
