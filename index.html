@@ -431,7 +431,7 @@ dl.api dd{color:var(--gauge);padding-left:13px}
 
 <div id="shell">
   <header id="topbar">
-    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-03.9</i></div>
+    <div id="wordmark"><b>Paint Archive</b><i>Forza · 2026-08-04.1</i></div>
     <input id="search" type="search" placeholder="Search make, model, colour, hex…" aria-label="Search cars">
     <span class="spacer"></span>
     <span id="count" class="eyebrow"></span>
@@ -9347,6 +9347,84 @@ const EFFECTS = {
               vinyl:[{hex: shift(hex, 92, -0.10, 0.12), opacity:28},{}]};
     }
   },
+  smoked: {
+    label:"Smoked",
+    note:"A dark veil at LOW opacity over a bright colour. Distinct from ghosted, which needs high opacity over black — this darkens without hiding, the way smoked glass does.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Metal Flake",
+              baseHex: hsvToHex(c.h, Math.min(c.s + 6, 100), Math.min(c.v + 14, 96)),
+              highlightHex: hsvToHex(c.h, Math.min(c.s + 4, 100), Math.min(c.v + 26, 100)),
+              vinyl:[{hex: hsvToHex(c.h, Math.min(c.s * 0.5, 30), 9), opacity:26},{}]};
+    }
+  },
+  chameleon: {
+    label:"Chameleon",
+    note:"Two-Tone with the two colours far apart on the wheel, so the flop is a change of colour rather than a change of shade. The strongest angular shift the game can express now that Spectraflame is off the table.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Two-Tone Polished",
+              baseHex: hsvToHex(c.h, Math.max(c.s, 70), Math.max(Math.min(c.v, 62), 26)),
+              highlightHex: hsvToHex(c.h + 128, Math.max(c.s, 72), Math.min(c.v + 20, 88)),
+              vinyl:[{},{}]};
+    }
+  },
+  oilslick: {
+    label:"Oil slick",
+    note:"Two DIFFERENT vinyls at partial opacity over a near-black base. Stacking them lands on a colour that is neither veil and neither the base — the only way this system reaches a hue a single slot cannot hold.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Metal Flake", baseHex:"#0b0b10",
+              highlightHex: hsvToHex(c.h, Math.max(c.s, 70), Math.min(c.v + 24, 92)),
+              vinyl:[{hex: hsvToHex(c.h + 96, 82, 46), opacity:38},
+                     {hex: hsvToHex(c.h - 74, 76, 62), opacity:34}]};
+    }
+  },
+  patina: {
+    label:"Patina",
+    note:"A cool desaturated veil over warm metal — verdigris on bronze. Aluminum carries the metal, the veil carries the age.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Aluminum Semi-Gloss",
+              baseHex: hsvToHex(Math.min(Math.max(c.h, 18), 48), Math.max(c.s * 0.6, 22),
+                                Math.min(Math.max(c.v, 38), 66)),
+              highlightHex: "",
+              vinyl:[{hex: hsvToHex(158, 34, 58), opacity:42},{}]};
+    }
+  },
+  carbon: {
+    label:"Tinted carbon",
+    note:"Carbon fibre with a colour laid over the weave. The twill still reads through, because a vinyl tints rather than covers.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Carbon Fiber Polished",
+              baseHex: hsvToHex(c.h, Math.min(c.s, 30), Math.min(Math.max(c.v, 14), 34)),
+              highlightHex: "",
+              vinyl:[{hex: hsvToHex(c.h, Math.max(c.s, 60), Math.max(c.v, 45)), opacity:34},{}]};
+    }
+  },
+  pearlwhite: {
+    label:"Pearl white",
+    note:"A near-white body with a faint coloured flake. The colour lives only in the sparkle, so the car reads white until the light catches it.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Metal Flake",
+              baseHex: hsvToHex(c.h, Math.min(c.s * 0.12, 8), 94),
+              highlightHex: hsvToHex(c.h, Math.max(c.s * 0.55, 34), Math.min(Math.max(c.v, 62), 88)),
+              vinyl:[{},{}]};
+    }
+  },
+  blackout: {
+    label:"Blackout",
+    note:"Matte black with a black vinyl over it. No colour difference at all — the whole effect is the sheen the vinyl adds, which is the least the system can do and still do something.",
+    make(hex){
+      const c = hexToHSV(hex);
+      return {paintType:"Matte",
+              baseHex: hsvToHex(c.h, Math.min(c.s, 14), 5),
+              highlightHex: "",
+              vinyl:[{hex: hsvToHex(c.h, Math.min(c.s, 18), 11), opacity:55},{}]};
+    }
+  },
   spectra: {
     label:"Spectraflame-like",
     note:"Spectraflame itself is a fixed palette, but its character can be approximated. Its signature is chroma held all the way from highlight to shadow, and holding ONE hue across pigment, flake and veil is what does that — a lighter flake dilutes toward white and drops the highlight chroma from 95% to 76%. Chrome plus a coloured vinyl gets the mirror depth but loses the colour entirely in shadow, which is the wrong failure.",
@@ -9475,6 +9553,36 @@ const EFFECT_BRIEF = {
   flake:
     "highlightHex is the flake itself, seen only in the sparkle. Brighter and a " +
     "little more saturated than the base.",
+  smoked:
+    "A DARK vinyl at LOW opacity — value under 16, opacity 18-34% — over a " +
+    "bright saturated base. Not ghosted: there the vinyl is opaque over black " +
+    "and hides the colour; here it is thin and merely darkens it, like smoked " +
+    "glass. The base must stay bright, value above 55.",
+  chameleon:
+    "Two-Tone with the two colours 100-165 degrees apart on the wheel, both " +
+    "saturated. The flop must be a change of COLOUR, not of shade — violet to " +
+    "green, teal to copper. A darker version of the base is a pearl, not a " +
+    "chameleon.",
+  oilslick:
+    "A near-black base with TWO DIFFERENT vinyl hues at partial opacity, one " +
+    "rotated about +100 degrees and the other about -75, at 28-48%. They stack " +
+    "to a colour that is neither of them. The flake carries the original hue.",
+  patina:
+    "Aluminum with a cool desaturated veil — verdigris, oxidised copper. The " +
+    "base is the warm metal, hue between 18 and 48; the vinyl is the age, cool " +
+    "and muted, at 32-55%.",
+  carbon:
+    "Carbon Fiber Polished with a saturated vinyl at 24-46%. The base stays " +
+    "dark and near-neutral so the weave reads; the colour comes entirely from " +
+    "the veil.",
+  pearlwhite:
+    "A near-WHITE base — saturation under 12, value above 86 — with a clearly " +
+    "coloured flake in highlightHex. The car reads white until the light " +
+    "catches the sparkle. Do not colour the body.",
+  blackout:
+    "Matte black, saturation under 18 and value under 12, with a barely " +
+    "different black vinyl at 40-70%. There is no colour difference: the whole " +
+    "effect is the sheen the vinyl adds.",
   spectra:
     "Approximating Spectraflame, which is itself a fixed palette you cannot mix. " +
     "Its character is chroma sustained from highlight into shadow. Use ONE hue " +
@@ -9542,6 +9650,27 @@ const EFFECT_RULES = {
     v0:  {rotate:[60, 140], op:[20, 45]},
     why: "three hues in play as the body turns"
   },
+  smoked:     {type:/^Metal Flake$/, base:{s:[45,100], v:[55,100]},
+               v0:{s:[0,32], v:[0,16], op:[18,34]},
+               why:"a dark film thin enough to darken without hiding"},
+  chameleon:  {type:/^Two-Tone/, base:{s:[65,100]}, hi:{rotate:[100,165], s:[65,100]},
+               why:"the flop is a change of colour, not of shade"},
+  oilslick:   {type:/^Metal Flake$/, base:{v:[0,14]},
+               v0:{rotate:[70,125], s:[60,95], op:[28,48]},
+               v1:{rotate:[-100,-55], s:[55,90], op:[26,44]},
+               why:"two veils stacking to a hue neither of them is"},
+  patina:     {type:/^Aluminum/, base:{s:[18,55], v:[34,70]},
+               v0:{s:[20,50], v:[42,70], op:[32,55]},
+               why:"cool age over warm metal"},
+  carbon:     {type:/^Carbon Fiber/, base:{s:[0,34], v:[10,38]},
+               v0:{s:[50,100], v:[35,80], op:[24,46]},
+               why:"the weave reads through the tint"},
+  pearlwhite: {type:/^Metal Flake$/, base:{s:[0,12], v:[86,100]},
+               hi:{s:[28,80], v:[55,92]},
+               why:"white until the light finds the flake"},
+  blackout:   {type:/^Matte$/, base:{s:[0,18], v:[0,12]},
+               v0:{s:[0,22], v:[4,18], op:[40,70]},
+               why:"sheen alone, no colour difference at all"},
   spectra: {
     type: /^Metal Flake$/,
     base: {s:[70,100], v:[10,55]},
@@ -11095,7 +11224,7 @@ addEventListener("appinstalled", () => {
   syncControls();
   renderAll();
   booted = true;
-  console.log("%cForza Paint Archive · build 2026-08-03.9","color:#F0A32C;font-weight:700",
+  console.log("%cForza Paint Archive · build 2026-08-04.1","color:#F0A32C;font-weight:700",
     "— window.paintArchive is live. Try paintArchive.loadRoster()");
 })();
 </script>
